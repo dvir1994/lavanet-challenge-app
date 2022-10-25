@@ -1,0 +1,44 @@
+version: 2.1
+
+jobs:
+  deploy:
+    docker:
+      - image: cimg/base:stable
+    steps:
+      - setup_remote_docker
+      - checkout
+      - aws-cli/setup:
+          aws-access-key-id: AWS_ACCESS_KEY_ID
+          aws-secret-access-key: AWS_SECRET_ACCESS_KEY
+          aws-region: AWS_REGION
+      - kubernetes/install
+      - aws-eks/update-kubeconfig-with-authenticator:
+          cluster-name: lavanet
+          install-kubectl: true
+          aws-region: us-east-1
+      - run:
+          name: Deployment Step
+          command: |
+            #!/bin/sh
+            aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin ${DOCKER_REGISTRY}
+
+            docker build --cache-from=${DOCKER_REGISTRY}/lavanet-ecr:${CIRCLE_BRANCH} -t ${DOCKER_REGISTRY}/lavanet-ecr:${CIRCLE_BRANCH} -t ${DOCKER_REGISTRY}/lavanet-ecr:${CIRCLE_WORKFLOW_ID} --build-arg BRANCH_NAME="$BRANCH_NAME" --build-arg COMMIT_ID="$COMMIT_ID" --build-arg PUSH_TIME="$PUSH_TIME" .
+            docker push ${DOCKER_REGISTRY}/lavanet-ecr --all-tags
+            
+            kubectl set image deployment/isbn-backend-server-1-deployment backend='${DOCKER_REGISTRY}/lavanet-ecr:${CIRCLE_WORKFLOW_ID}' --namespace='isbn-backend'
+
+
+orbs:
+  kubernetes: circleci/kubernetes@1.3
+  aws-ecr: circleci/aws-ecr@8.1.3
+  aws-cli: circleci/aws-cli@1.3.1
+  aws-eks: circleci/aws-eks@2.2.0
+workflows:
+  version: 2
+  wf:
+    jobs:
+      - deploy:
+          filters:
+            branches:
+              only:
+                - main
