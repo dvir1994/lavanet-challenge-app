@@ -1,26 +1,45 @@
-# Use the latest 2.1 version of CircleCI pipeline process engine.
-# See: https://circleci.com/docs/2.0/configuration-reference
 version: 2.1
 
-# Define a job to be invoked later in a workflow.
-# See: https://circleci.com/docs/2.0/configuration-reference/#jobs
 jobs:
   say-hello:
-    # Specify the execution environment. You can specify an image from Dockerhub or use one of our Convenience Images from CircleCI's Developer Hub.
-    # See: https://circleci.com/docs/2.0/configuration-reference/#docker-machine-macos-windows-executor
     docker:
       - image: cimg/base:stable
-    # Add steps to the job
-    # See: https://circleci.com/docs/2.0/configuration-reference/#steps
     steps:
+      - setup_remote_docker
       - checkout
+      - aws-cli/setup:
+          aws-access-key-id: AWS_ACCESS_KEY_ID
+          aws-secret-access-key: AWS_SECRET_ACCESS_KEY
+          aws-region: AWS_REGION
       - run:
-          name: "Say hello"
-          command: "echo Hello, World!"
+          name: Deployment Step
+          command: |
+            #!/bin/sh
+            aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin ${DOCKER_REGISTRY}
 
-# Invoke jobs via workflows
-# See: https://circleci.com/docs/2.0/configuration-reference/#workflows
+            docker build --cache-from=${DOCKER_REGISTRY}/backend:${CIRCLE_BRANCH} -t ${DOCKER_REGISTRY}/backend:${CIRCLE_BRANCH} -t ${DOCKER_REGISTRY}/backend:${CIRCLE_WORKFLOW_ID} --build-arg BRANCH_NAME="$BRANCH_NAME" --build-arg COMMIT_ID="$COMMIT_ID" --build-arg PUSH_TIME="$PUSH_TIME" .
+            docker push ${DOCKER_REGISTRY}/backend --all-tags
+
+            #ECS
+            
+            task_def_arn=$(aws ecs list-task-definitions --family backend-backend | jq -r '.taskDefinitionArns[-1]')
+            aws ecs describe-task-definition --task-definition $task_def_arn | jq -r '.taskDefinition' | jq 'del(.status, .taskDefinitionArn, .requiresAttributes, .revision, .compatibilities, .registeredAt, .registeredBy)' > task_definition.json
+            sed -i 's\"image": .*\"image": "'"${DOCKER_REGISTRY}/backend:${CIRCLE_WORKFLOW_ID}"'",\g' task_definition.json
+            new_task_def_arn=$(aws ecs register-task-definition --family backend-backend --cli-input-json file://task_definition.json --query 'taskDefinition.taskDefinitionArn' --output text)
+            aws ecs update-service --cluster backend --service backend --task-definition $new_task_def_arn > /tmp/$CIRCLE_WORKFLOW_ID.log
+            cat /tmp/$CIRCLE_WORKFLOW_ID.log
+
+orbs:
+  aws-cli: circleci/aws-cli@1.3.1
+  aws-eks: circleci/aws-eks@2.2.0
 workflows:
-  say-hello-workflow:
+  version: 2
+  wf:
     jobs:
-      - say-hello
+      - deploy:
+          filters:
+            branches:
+              only:
+                - main
+                - staging
+
