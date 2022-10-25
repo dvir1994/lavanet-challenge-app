@@ -11,7 +11,6 @@ def home():
 
 @app.route('/book/<isbn>')
 def isbn_query(isbn):
-    0/0
     try:
         response = requests.get(isbndb_base_url_prefix+isbn+isbndb_base_url_suffix)
         if len(response.json()):
