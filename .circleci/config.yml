@@ -1,7 +1,7 @@
 version: 2.1
 
 jobs:
-  say-hello:
+  deploy:
     docker:
       - image: cimg/base:stable
     steps:
@@ -20,14 +20,8 @@ jobs:
             docker build --cache-from=${DOCKER_REGISTRY}/backend:${CIRCLE_BRANCH} -t ${DOCKER_REGISTRY}/backend:${CIRCLE_BRANCH} -t ${DOCKER_REGISTRY}/backend:${CIRCLE_WORKFLOW_ID} --build-arg BRANCH_NAME="$BRANCH_NAME" --build-arg COMMIT_ID="$COMMIT_ID" --build-arg PUSH_TIME="$PUSH_TIME" .
             docker push ${DOCKER_REGISTRY}/backend --all-tags
 
-            #ECS
-            
-            task_def_arn=$(aws ecs list-task-definitions --family backend-backend | jq -r '.taskDefinitionArns[-1]')
-            aws ecs describe-task-definition --task-definition $task_def_arn | jq -r '.taskDefinition' | jq 'del(.status, .taskDefinitionArn, .requiresAttributes, .revision, .compatibilities, .registeredAt, .registeredBy)' > task_definition.json
-            sed -i 's\"image": .*\"image": "'"${DOCKER_REGISTRY}/backend:${CIRCLE_WORKFLOW_ID}"'",\g' task_definition.json
-            new_task_def_arn=$(aws ecs register-task-definition --family backend-backend --cli-input-json file://task_definition.json --query 'taskDefinition.taskDefinitionArn' --output text)
-            aws ecs update-service --cluster backend --service backend --task-definition $new_task_def_arn > /tmp/$CIRCLE_WORKFLOW_ID.log
-            cat /tmp/$CIRCLE_WORKFLOW_ID.log
+            kubectl set image deployment/isbn-backend-server-1-deployment backend='${DOCKER_REGISTRY}/backend:${CIRCLE_WORKFLOW_ID}' --namespace='isbn-backend'
+
 
 orbs:
   aws-cli: circleci/aws-cli@1.3.1
@@ -41,5 +35,3 @@ workflows:
             branches:
               only:
                 - main
-                - staging
-
