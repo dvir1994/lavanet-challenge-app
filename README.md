@@ -33,7 +33,7 @@ _Note: The home page will dynamically change between servers when deployed in th
 
 Home page.
 
-`books/<ISBN>`
+`book/<ISBN>`
 
 Query the ISBN and return detailed JSON.
 
